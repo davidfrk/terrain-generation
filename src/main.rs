@@ -47,54 +47,15 @@ where
             // Scale and warp the second dimension
             warped_point[1] += self.warp_noise.get({
                 let mut warp_input = point;
+                warp_input.iter_mut().for_each(|v| *v *= self.warp_freq);
                 warp_input[0] += offset; // Add offset to the first dimension
                 warp_input[1] += offset; // Add offset to the second dimension
-                warp_input.iter_mut().for_each(|v| *v *= self.warp_freq);
                 warp_input
             }) * self.warp_strength;
         }
 
         // Use the warped coordinates in the primary noise function
         self.primary_noise.get(warped_point)
-    }
-}
-
-pub struct Scalar{
-    value: f64,
-}
-
-impl Scalar{
-    pub fn new(value:f64) -> Self {
-        Scalar {
-            value,
-        }
-    }
-}
-
-impl<T, const DIM:usize> NoiseFn<T, DIM> for Scalar {
-    fn get(&self, _point: [T; DIM]) -> f64 {
-        self.value
-    }
-}
-
-pub struct ReduceTo2D<'a, Noise> {
-    noise: &'a Noise,
-    fixed_z: f64,
-}
-
-impl<'a, Noise> ReduceTo2D<'a, Noise> {
-    pub fn new(noise: &'a Noise, fixed_z: f64) -> Self {
-        Self { noise, fixed_z }
-    }
-}
-
-impl<'a, Noise> NoiseFn<f64, 2> for ReduceTo2D<'a, Noise>
-where
-    Noise: NoiseFn<f64, 3>,
-{
-    fn get(&self, point: [f64; 2]) -> f64 {
-        // Extend the 2D point to 3D by adding the fixed_z coordinate
-        self.noise.get([point[0], point[1], self.fixed_z])
     }
 }
 
@@ -116,11 +77,9 @@ fn main() {
     let fbm_worley_noise = Fbm::<Worley>::new(seed);
     let billow_noise = Billow::<Perlin>::new(seed);
 
+    // Take the absolute and re-scale to add back the negative part, then flip the height map
     let abs_perlin_noise: Abs<f64, &Fbm<Perlin>, 3> = Abs::new(&fbm_perlin_noise);
-    let reversed_perlin_noise = Multiply::new(Add::new(&abs_perlin_noise, Scalar::new(-0.2)), Scalar::new(-2.0));
-
-    // Reduce reversed_perlin_noise to 2D
-    let reduced_perlin_noise = ReduceTo2D::new(&reversed_perlin_noise, 0.0);
+    let reversed_perlin_noise = Multiply::new(Add::new(&abs_perlin_noise, Constant::new(-0.2)), Constant::new(-2.0));
 
     // Create the DomainWarp instance with generics
     let perlin_warp_noise = DomainWarp::<_, _, 2>::new(&fbm_perlin_noise, &fbm_perlin_noise, warp_strength, warp_freq);
@@ -128,7 +87,7 @@ fn main() {
     let billow_warp_noise = DomainWarp::<_, _, 2>::new(billow_noise, &fbm_perlin_noise, warp_strength, warp_freq);
     let reversed_perlin_warp_noise = DomainWarp::new(&reversed_perlin_noise, &fbm_perlin_noise, warp_strength, warp_freq);
 
-    let terrain = Add::new(&perlin_warp_noise, Scalar::new(0.2));
+    let terrain = Add::new(&perlin_warp_noise, Constant::new(0.2));
 
     // Build a noise map using PlaneMapBuilder with the wrapped noise function
     let noise_map = PlaneMapBuilder::new(reversed_perlin_warp_noise)  // Use wrapped noise function
