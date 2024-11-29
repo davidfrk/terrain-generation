@@ -59,6 +59,22 @@ where
     }
 }
 
+pub struct TerrainWrapper<'a> {
+    terrain: &'a dyn NoiseFn<f64, 2>, // Use a reference to a trait object
+}
+
+impl<'a> TerrainWrapper<'a> {
+    fn new(terrain: &'a dyn NoiseFn<f64, 2>) -> Self {
+        TerrainWrapper { terrain }
+    }
+}
+
+impl<'a> NoiseFn<f64, 3> for TerrainWrapper<'a> {
+    fn get(&self, point: [f64; 3]) -> f64 {
+        self.terrain.get([point[0], point[1]]) // Use only the first two coordinates
+    }
+}
+
 #[allow(unused_variables)]
 fn main() {
     //Generation properties
@@ -78,19 +94,20 @@ fn main() {
     let billow_noise = Billow::<Perlin>::new(seed);
 
     // Take the absolute and re-scale to add back the negative part, then flip the height map
-    let abs_perlin_noise: Abs<f64, &Fbm<Perlin>, 3> = Abs::new(&fbm_perlin_noise);
+    let abs_perlin_noise = Abs::new(&fbm_perlin_noise);
     let reversed_perlin_noise = Multiply::new(Add::new(&abs_perlin_noise, Constant::new(-0.2)), Constant::new(-2.0));
 
     // Create the DomainWarp instance with generics
     let perlin_warp_noise = DomainWarp::<_, _, 2>::new(&fbm_perlin_noise, &fbm_perlin_noise, warp_strength, warp_freq);
     let worley_warp_noise = DomainWarp::<_, _, 2>::new(fbm_worley_noise, &fbm_perlin_noise, warp_strength, warp_freq);
     let billow_warp_noise = DomainWarp::<_, _, 2>::new(billow_noise, &fbm_perlin_noise, warp_strength, warp_freq);
-    let reversed_perlin_warp_noise = DomainWarp::new(&reversed_perlin_noise, &fbm_perlin_noise, warp_strength, warp_freq);
+    let reversed_perlin_warp_noise = DomainWarp::<_, _, 2>::new(&reversed_perlin_noise, &fbm_perlin_noise, warp_strength, warp_freq);
 
-    let terrain = Add::new(&perlin_warp_noise, Constant::new(0.2));
+    let terrain = Add::new(&reversed_perlin_noise, &perlin_warp_noise);
+    let terrain_wrapper = TerrainWrapper::new(&terrain);
 
     // Build a noise map using PlaneMapBuilder with the wrapped noise function
-    let noise_map = PlaneMapBuilder::new(reversed_perlin_warp_noise)  // Use wrapped noise function
+    let noise_map = PlaneMapBuilder::new(terrain_wrapper)  // Use wrapped noise function
         .set_x_bounds(-length/2.0, length/2.0)  // Set the x-axis bounds
         .set_y_bounds(-length/2.0, length/2.0)  // Set the y-axis bounds
         .set_size(resolution, resolution)  // Set the resolution of the noise map
