@@ -1,5 +1,7 @@
-use noise::NoiseFn;
+use noise::*;
 
+
+#[derive(Clone)]
 pub struct DomainWarp<WarpNoise, PrimaryNoise, const DIM: usize> {
   warp_strength: f64,
   warp_freq: f64,
@@ -71,4 +73,36 @@ impl<'a> NoiseFn<f64, 3> for TerrainWrapper<'a> {
   fn get(&self, point: [f64; 3]) -> f64 {
       self.terrain.get([point[0], point[1]]) // Use only the first two coordinates
   }
+}
+
+#[allow(unused_variables)]
+pub fn generate_terrain(seed:u32) -> Box<dyn NoiseFn<f64,2>> {
+  // Domain warp properties
+  let warp_strength: f64 = 1.5;
+  let warp_freq: f64 = 1.0;
+
+  // Available filters
+  let perlin_noise = Perlin::new(seed);
+  let fbm_perlin_noise = Fbm::<Perlin>::new(seed + 2);
+  let worley_noise = Worley::new(seed + 13);
+  let fbm_worley_noise = Fbm::<Worley>::new(seed + 129);
+  let billow_noise = Billow::<Perlin>::new(seed + 864);
+
+  // Take the absolute and re-scale to add back the negative part, then flip the height map
+  let abs_perlin_noise = Abs::new(fbm_perlin_noise.clone());
+  let reversed_perlin_noise = Multiply::new(Add::new(abs_perlin_noise.clone(), Constant::new(-0.2)), Constant::new(-2.0));
+
+  // Create the DomainWarp instance with generics
+  let perlin_warp_noise = DomainWarp::<_, _, 2>::new(fbm_perlin_noise.clone(), fbm_perlin_noise.clone(), warp_strength, warp_freq);
+  let worley_warp_noise = DomainWarp::<_, _, 2>::new(fbm_worley_noise.clone(), fbm_perlin_noise.clone(), warp_strength, warp_freq);
+  let billow_warp_noise = DomainWarp::<_, _, 2>::new(billow_noise.clone(), fbm_perlin_noise.clone(), warp_strength, warp_freq);
+  let reversed_perlin_warp_noise = DomainWarp::<_, _, 2>::new(reversed_perlin_noise.clone(), fbm_perlin_noise.clone(), warp_strength, warp_freq);
+
+  let perlin_sum = Multiply::new(Add::new(reversed_perlin_noise.clone(), perlin_warp_noise.clone()), Constant::new(0.5));
+  let worley_billow_sum = Multiply::new(Add::new(worley_warp_noise.clone(), billow_warp_noise.clone()), Constant::new(0.5));
+  let terrain = Multiply::new(Add::new(perlin_sum.clone(), worley_billow_sum.clone()), Constant::new(0.5));
+  //let terrain = Add::new(&terrain, Constant::new(0.2));
+
+  //Return terrain
+  Box::new(terrain)
 }
